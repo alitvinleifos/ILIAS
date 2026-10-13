@@ -204,13 +204,25 @@ class ilAdvancedMDSettingsGUI
 
     protected function getOidFromQuery(): ?string
     {
-        if ($this->http->wrapper()->query()->has('oid')) {
-            return $this->http->wrapper()->query()->retrieve(
-                'oid',
-                $this->refinery->kindlyTo()->string()
-            );
+        $name = 'advmd_oid';
+        $oid = null;
+        $transformation = $this->refinery->byTrying([
+            $this->refinery->kindlyTo()->string(),
+            $this->refinery->kindlyTo()->listOf($this->refinery->kindlyTo()->string())
+        ]);
+        if ($this->http->wrapper()->query()->has($name)) {
+            $oid = $this->http->wrapper()->query()->retrieve($name, $transformation);
         }
-        return null;
+
+        if ($this->http->wrapper()->post()->has($name)) {
+            $oid = $this->http->wrapper()->post()->retrieve($name, $transformation);
+        }
+
+        if (is_array($oid) && !empty($oid)) {
+            return (string) $oid[0];
+        }
+
+        return (string) $oid ?? null;
     }
 
     /**
@@ -2002,13 +2014,16 @@ class ilAdvancedMDSettingsGUI
     {
         $this->ctrl->saveParameter($this, "record_id");
         $this->ctrl->saveParameter($this, "field_id");
-        $this->ctrl->saveParameter($this, "oid");
 
         $form = new ilPropertyFormGUI();
         $form->setTitle($this->lng->txt("md_adv_edit_complex_option"));
         $form->setFormAction($this->ctrl->getFormAction($this, "updateComplexOption"));
 
         $oid = $this->getOidFromQuery();
+        $hidden_oid = new ilHiddenInputGUI("advmd_oid");
+        $hidden_oid->setValue((string) $oid);
+        $form->addItem($hidden_oid);
+
         $a_def->initOptionForm($form, $oid);
 
         $form->addCommandButton("updateComplexOption", $this->lng->txt("save"));
