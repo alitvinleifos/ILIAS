@@ -214,10 +214,6 @@ class ilAdvancedMDSettingsGUI
             $oid = $this->http->wrapper()->query()->retrieve($name, $transformation);
         }
 
-        if ($this->http->wrapper()->post()->has($name)) {
-            $oid = $this->http->wrapper()->post()->retrieve($name, $transformation);
-        }
-
         if (is_array($oid) && !empty($oid)) {
             return (string) $oid[0];
         }
@@ -2015,14 +2011,12 @@ class ilAdvancedMDSettingsGUI
         $this->ctrl->saveParameter($this, "record_id");
         $this->ctrl->saveParameter($this, "field_id");
 
+        $oid = $this->getOidFromQuery();
+        $this->ctrl->setParameter($this, "advmd_oid", (string) $oid);
+
         $form = new ilPropertyFormGUI();
         $form->setTitle($this->lng->txt("md_adv_edit_complex_option"));
         $form->setFormAction($this->ctrl->getFormAction($this, "updateComplexOption"));
-
-        $oid = $this->getOidFromQuery();
-        $hidden_oid = new ilHiddenInputGUI("advmd_oid");
-        $hidden_oid->setValue((string) $oid);
-        $form->addItem($hidden_oid);
 
         $a_def->initOptionForm($form, $oid);
 
