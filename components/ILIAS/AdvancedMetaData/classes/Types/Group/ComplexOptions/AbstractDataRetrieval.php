@@ -62,4 +62,21 @@ abstract class AbstractDataRetrieval implements BaseDataRetrieval, OrderingRetri
     {
         return array_keys($this->getRawData());
     }
+
+    /**
+     * @return string[]
+     */
+    public function resolveIDs(array|string $ids): array
+    {
+        if ($ids === ['ALL_OBJECTS'] || $ids === 'ALL_OBJECTS') {
+            return $this->getAllIDs();
+        }
+        if (is_array($ids)) {
+            return array_values(array_filter($ids, 'is_string'));
+        }
+        if (is_string($ids)) {
+            return [$ids];
+        }
+        return [];
+    }
 }

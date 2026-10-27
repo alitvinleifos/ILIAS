@@ -40,6 +40,8 @@ class FieldDataRetrieval extends AbstractDataRetrieval
         $res = [];
         $counter = 0;
         $namesource = $this->getNameSource();
+        $ok_icon = $this->ui_factory->symbol()->icon()->custom('assets/images/standard/icon_ok.svg', '', 'small');
+        $not_ok_icon = $this->ui_factory->symbol()->icon()->custom('assets/images/standard/icon_not_ok.svg', '', 'small');
 
         foreach ($fields as $definition) {
             $field_translations = ilAdvancedMDFieldTranslations::getInstanceByRecordId($definition->getRecordId());
@@ -47,22 +49,16 @@ class FieldDataRetrieval extends AbstractDataRetrieval
             $counter += 10;
 
             $properties = $definition->getFieldDefinitionForTableGUI($this->active_language);
-            $prop_str = "";
-            if (is_array($properties)) {
-                $p_parts = [];
+            $configuration = "";
+            if (is_array($properties) && count($properties) > 0) {
+                $cleaned_properties = [];
                 foreach ($properties as $key => $value) {
-                    $p_parts[] = "$key: $value";
+                    $cleaned_properties[(string) $key] = (string) $value;
                 }
-                $prop_str = implode(', ', $p_parts);
+                $configuration = $this->ui_factory->listing()->descriptive($cleaned_properties);
             }
 
-            $searchable_input = $this->ui_factory->input()->field()->checkbox(
-                '',
-                ''
-            )
-                ->withDedicatedName('searchable[' . $id . ']')
-                ->withNameFrom($namesource)
-                ->withValue($definition->isSearchable());
+            $searchable_icon = $definition->isSearchable() ? $ok_icon : $not_ok_icon;
 
             $res[$id] = [
                 'id' => $id,
@@ -70,8 +66,8 @@ class FieldDataRetrieval extends AbstractDataRetrieval
                 'title' => $field_translations->getTitleForLanguage($id, $this->active_language),
                 'description' => $field_translations->getDescriptionForLanguage($id, $this->active_language),
                 'type' => $this->lng->txt($definition->getTypeTitle()),
-                'options' => $prop_str,
-                'searchable' => $searchable_input,
+                'configuration' => $configuration,
+                'searchable' => $searchable_icon,
                 'perm' => $this->permissions->hasPermissions(
                     ilAdvancedMDPermissionHelper::CONTEXT_FIELD,
                     (int) $id,

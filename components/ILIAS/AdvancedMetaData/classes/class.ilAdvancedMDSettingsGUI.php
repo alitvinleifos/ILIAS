@@ -31,6 +31,8 @@ use ILIAS\AdvancedMetaData\Types\Group\ComplexOptions\Table\RecordTableBuilder a
 use ILIAS\AdvancedMetaData\Types\Group\ComplexOptions\Table\RecordDataRetrieval as RecordDataRetrieval;
 use ILIAS\AdvancedMetaData\Types\Group\ComplexOptions\Table\FieldTableBuilder;
 use ILIAS\AdvancedMetaData\Types\Group\ComplexOptions\Table\FieldDataRetrieval;
+use ILIAS\AdvancedMetaData\Types\Group\ComplexOptions\Table\AbstractDataRetrieval;
+use ILIAS\UI\Component\Table\Ordering;
 
 /**
  * @author       Stefan Meyer <meyer@leifos.com>
@@ -72,6 +74,9 @@ class ilAdvancedMDSettingsGUI
 
     protected ilAdvancedMDPermissionHelper $permissions;
     protected ?ilAdvancedMDRecord $record = null;
+
+    protected ?RecordDataRetrieval $record_data_retrieval = null;
+    protected ?FieldDataRetrieval $field_data_retrieval = null;
 
     private string $active_language = '';
     protected int $ref_id;
@@ -412,6 +417,55 @@ class ilAdvancedMDSettingsGUI
         return $url_builder->acquireParameters(['advmd'], 'record_ids', 'record_action');
     }
 
+    protected function getRecordDataRetrieval(): RecordDataRetrieval
+    {
+        if ($this->record_data_retrieval === null) {
+            $this->record_data_retrieval = new RecordDataRetrieval(
+                $this->context,
+                $this->obj_id,
+                $this->ref_id,
+                $this->sub_type,
+                $this->obj_type,
+                $this->getPermissions(),
+                $this->lng,
+                $this->ui_factory,
+                $this->data_factory,
+                $this->refinery
+            );
+        }
+        return $this->record_data_retrieval;
+    }
+
+    protected function getFieldDataRetrieval(int $record_id): FieldDataRetrieval
+    {
+        if ($this->field_data_retrieval === null) {
+            $this->field_data_retrieval = new FieldDataRetrieval(
+                $record_id,
+                $this->active_language,
+                $this->getPermissions(),
+                $this->lng,
+                $this->ui_factory,
+                $this->data_factory,
+                $this->refinery
+            );
+        }
+        return $this->field_data_retrieval;
+    }
+
+    protected function getIdsFromQuery(string $name, AbstractDataRetrieval $retrieval): array
+    {
+        if (!$this->http->wrapper()->query()->has($name)) {
+            return [];
+        }
+
+        $raw_ids = $this->http->wrapper()->query()->retrieve(
+            $name,
+            $this->refinery->identity()
+        );
+
+        return array_map('intval', array_filter($retrieval->resolveIDs($raw_ids), fn($id) => $id !== ''));
+    }
+
     protected function handleTableAction(
     ): void {
         $record_id = $this->getRecordIdFromQuery();
@@ -432,20 +486,7 @@ class ilAdvancedMDSettingsGUI
             $this->refinery->kindlyTo()->string()
         );
 
-        $ids = [];
-        if ($this->http->wrapper()->query()->has($id_token->getName())) {
-            $raw_ids = $this->http->wrapper()->query()->retrieve(
-                $id_token->getName(),
-                $this->refinery->kindlyTo()->listOf(
-                    $this->refinery->kindlyTo()->string()
-                )
-            );
-            foreach ($raw_ids as $raw_id) {
-                if ($raw_id !== '') {
-                    $ids[] = (int) $raw_id;
-                }
-            }
-        }
+        $ids = $this->getIdsFromQuery($id_token->getName(), $this->getRecordDataRetrieval());
 
         $this->requested_record_ids = $ids;
         switch ($action) {
@@ -802,24 +843,10 @@ class ilAdvancedMDSettingsGUI
         $this->ctrl->redirect($this, "showRecords");
     }
 
-    /**
-     * @return \ILIAS\UI\Component\Table\Ordering
-     */
-    protected function getRecordTable(): \ILIAS\UI\Component\Table\Ordering
+    protected function getRecordTable(): Ordering
     {
         $url_params = $this->getTableActionURLBuilder();
-        $retrieval = new RecordDataRetrieval(
-            $this->context,
-            $this->obj_id,
-            $this->ref_id,
-            $this->sub_type,
-            $this->obj_type,
-            $this->getPermissions(),
-            $this->lng,
-            $this->ui_factory,
-            $this->data_factory,
-            $this->refinery
-        );
+        $retrieval = $this->getRecordDataRetrieval();
         return new RecordTableBuilder(
             $retrieval,
             $this->lng,
@@ -869,18 +896,7 @@ class ilAdvancedMDSettingsGUI
         $table = $this->getRecordTable();
 
         $ordered_ids = $table->getData();
-        $data_retrieval = new RecordDataRetrieval(
-            $this->context,
-            $this->obj_id,
-            $this->ref_id,
-            $this->sub_type,
-            $this->obj_type,
-            $this->getPermissions(),
-            $this->lng,
-            $this->ui_factory,
-            $this->data_factory,
-            $this->refinery
-        );
+        $data_retrieval = $this->getRecordDataRetrieval();
         $records = $data_retrieval->getRawData();
         $post = $this->http->request()->getParsedBody();
 
@@ -979,8 +995,10 @@ class ilAdvancedMDSettingsGUI
 
         // add items to delete
         foreach ($field_ids as $field_id) {
-            $field = ilAdvancedMDFieldDefinition::getInstance($field_id);
-            $c_gui->addItem("field_id[]", (string) $field_id, $field->getTitle() ?: 'No Title');
+            if (ilAdvancedMDFieldDefinition::exists((int) $field_id)) {
+                $field = ilAdvancedMDFieldDefinition::getInstance($field_id);
+                $c_gui->addItem("field_id[]", (string) $field_id, $field->getTitle() ?: 'No Title');
+            }
         }
         $this->tpl->setContent($c_gui->getHTML());
     }
@@ -999,13 +1017,15 @@ class ilAdvancedMDSettingsGUI
         // all fields have to be deletable
         $fail = array();
         foreach ($field_ids as $field_id) {
-            if (!$this->getPermissions()->hasPermission(
-                ilAdvancedMDPermissionHelper::CONTEXT_FIELD,
-                (int) $field_id,
-                ilAdvancedMDPermissionHelper::ACTION_FIELD_DELETE
-            )) {
-                $field = ilAdvancedMDFieldDefinition::getInstance($field_id);
-                $fail[] = $field->getTitle();
+            if (ilAdvancedMDFieldDefinition::exists((int) $field_id)) {
+                if (!$this->getPermissions()->hasPermission(
+                    ilAdvancedMDPermissionHelper::CONTEXT_FIELD,
+                    (int) $field_id,
+                    ilAdvancedMDPermissionHelper::ACTION_FIELD_DELETE
+                )) {
+                    $field = ilAdvancedMDFieldDefinition::getInstance($field_id);
+                    $fail[] = $field->getTitle();
+                }
             }
         }
         if ($fail) {
@@ -1014,8 +1034,10 @@ class ilAdvancedMDSettingsGUI
         }
 
         foreach ($field_ids as $field_id) {
-            $field = ilAdvancedMDFieldDefinition::getInstance($field_id);
-            $field->delete();
+            if (ilAdvancedMDFieldDefinition::exists((int) $field_id)) {
+                $field = ilAdvancedMDFieldDefinition::getInstance($field_id);
+                $field->delete();
+            }
         }
         $this->tpl->setOnScreenMessage('success', $this->lng->txt('md_adv_deleted_fields'), true);
         $this->ctrl->redirect($this, "editFields");
@@ -1043,15 +1065,7 @@ class ilAdvancedMDSettingsGUI
     {
         $url_params = $this->getFieldTableActionURLBuilder();
         return new FieldTableBuilder(
-            new FieldDataRetrieval(
-                (int) $record_id,
-                $this->active_language,
-                $this->getPermissions(),
-                $this->lng,
-                $this->ui_factory,
-                $this->data_factory,
-                $this->refinery
-            ),
+            $this->getFieldDataRetrieval($record_id),
             $this->lng,
             $this->ui_factory,
             $this->http,
@@ -1150,9 +1164,9 @@ class ilAdvancedMDSettingsGUI
         $url_builder = new URLBuilder($this->data_factory->uri($link));
         $record_id = $this->getRecordIdFromQuery();
         if ($record_id) {
-            list($url_builder, $record_id_token) = $url_builder->acquireParameter(['advmd_f'], 'record_id', (string) $record_id);
+            list($url_builder, $record_id_token) = $url_builder->acquireParameter(['advmd_field'], 'record_id', (string) $record_id);
         }
-        return $url_builder->acquireParameters(['advmd_f'], 'field_ids', 'field_action');
+        return $url_builder->acquireParameters(['advmd_field'], 'field_ids', 'field_action');
     }
 
     protected function handleFieldTableAction(
@@ -1165,7 +1179,6 @@ class ilAdvancedMDSettingsGUI
 
         list($url_builder, $id_token, $action_token) = $this->getFieldTableActionURLBuilder();
 
-
         if (!$this->http->wrapper()->query()->has($action_token->getName())) {
             $this->ctrl->redirect($this, 'editFields');
             return;
@@ -1176,20 +1189,10 @@ class ilAdvancedMDSettingsGUI
             $this->refinery->kindlyTo()->string()
         );
 
-        $ids = [];
-        if ($this->http->wrapper()->query()->has($id_token->getName())) {
-            $raw_ids = $this->http->wrapper()->query()->retrieve(
-                $id_token->getName(),
-                $this->refinery->kindlyTo()->listOf(
-                    $this->refinery->kindlyTo()->string()
-                )
-            );
-            foreach ($raw_ids as $raw_id) {
-                if ($raw_id !== '') {
-                    $ids[] = (int) $raw_id;
-                }
-            }
-        }
+        $ids = $this->getIdsFromQuery(
+            $id_token->getName(),
+            $this->getFieldDataRetrieval((int) $this->getRecordIdFromQuery())
+        );
 
         $this->requested_field_ids = $ids;
         switch ($action) {
@@ -1223,20 +1226,9 @@ class ilAdvancedMDSettingsGUI
         $table = $this->getFieldTable((int) $record_id);
 
         $ordered_ids = $table->getData();
-        $data_retrieval = new FieldDataRetrieval(
-            (int) $record_id,
-            $this->active_language,
-            $this->getPermissions(),
-            $this->lng,
-            $this->ui_factory,
-            $this->data_factory,
-            $this->refinery
-        );
+        $data_retrieval = $this->getFieldDataRetrieval((int) $record_id);
         $fields_data = $data_retrieval->getRawData();
         $fields = ilAdvancedMDFieldDefinition::getInstancesByRecordId($record_id);
-        $post = $this->http->request()->getParsedBody();
-
-        $post_searchable = $this->extractTableInputs($post, 'searchable');
 
         $i = 1;
         foreach ($ordered_ids as $field_id) {
@@ -1252,14 +1244,6 @@ class ilAdvancedMDSettingsGUI
                     ilAdvancedMDPermissionHelper::ACTION_RECORD_FIELD_POSITIONS
                 )) {
                     $field->setPosition($i++);
-                    $field->update();
-                }
-
-                if ($perm[ilAdvancedMDPermissionHelper::ACTION_FIELD_EDIT_PROPERTY][ilAdvancedMDPermissionHelper::SUBACTION_FIELD_SEARCHABLE] ?? false) {
-                    $field->setSearchable(
-                        (isset($post_searchable[$field_id]) &&
-                        ($post_searchable[$field_id] === 'checked' || $post_searchable[$field_id] === '1' || $post_searchable[$field_id] === 'true'))
-                    );
                     $field->update();
                 }
             }

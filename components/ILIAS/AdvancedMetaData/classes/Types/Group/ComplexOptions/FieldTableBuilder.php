@@ -17,7 +17,7 @@ class FieldTableBuilder
 {
     public const string TITLE_COLUMN = 'title';
     public const string TYPE_COLUMN = 'type';
-    public const string OPTIONS_COLUMN = 'options';
+    public const string CONFIGURATION_COLUMN = 'configuration';
     public const string SEARCHABLE_COLUMN = 'searchable';
 
     public const string EDIT_FIELD_ACTION = 'editField';
@@ -44,10 +44,11 @@ class FieldTableBuilder
             $this->lng->txt('title')
         )->withIsSortable(true);
         $columns[self::TYPE_COLUMN] = $this->ui_factory->table()->column()->text(
-            $this->lng->txt('md_adv_field_fields')
+            $this->lng->txt('type')
         );
-        $columns[self::OPTIONS_COLUMN] = $this->ui_factory->table()->column()->text(
-            $this->lng->txt('options')
+        $columns[self::CONFIGURATION_COLUMN] = new PresentationColumn(
+            $this->lng,
+            $this->lng->txt('configuration')
         );
         $columns[self::SEARCHABLE_COLUMN] = new PresentationColumn(
             $this->lng,
