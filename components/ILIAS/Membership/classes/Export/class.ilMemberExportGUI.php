@@ -22,6 +22,13 @@ use ILIAS\HTTP\GlobalHttpState;
 use ILIAS\Refinery\Factory;
 use ILIAS\User\Profile\Profile;
 use ILIAS\User\Context;
+use ILIAS\UI\URLBuilder;
+use ILIAS\UI\URLBuilderToken;
+use ILIAS\Data\Factory as DataFactory;
+use ILIAS\Membership\Export\Table\TableBuilder;
+use ILIAS\Membership\Export\Table\DataRetrieval;
+use ILIAS\UI\Renderer as UIRenderer;
+use ILIAS\UI\Factory as UIFactory;
 
 /**
  * @author  Stefan Meyer <meyer@leifos.com>
@@ -41,6 +48,9 @@ class ilMemberExportGUI
     protected ilLanguage $lng;
     protected ilToolbarGUI $toolbar;
     protected Profile $profile;
+    protected UIRenderer $ui_renderer;
+    protected UIFactory $ui_factory;
+    protected DataFactory $data_factory;
 
     protected ?ilMemberExport $export = null;
     protected ?ilExportFieldsInfo $fields_info = null;
@@ -65,6 +75,9 @@ class ilMemberExportGUI
         $this->profile = $DIC['user']->getProfile();
         $this->lng = $DIC->language();
         $this->lng->loadLanguageModule('ps');
+        $this->ui_factory = $DIC->ui()->factory();
+        $this->ui_renderer = $DIC->ui()->renderer();
+        $this->data_factory = new DataFactory();
         $this->ref_id = $a_ref_id;
         $this->obj_id = ilObject::_lookupObjId($this->ref_id);
         $this->type = ilObject::_lookupType($this->obj_id);
@@ -296,8 +309,70 @@ class ilMemberExportGUI
      */
     public function showFileList(): void
     {
-        $tbl = new ilMemberExportFileTableGUI($this, 'show', $this->fss_export);
-        $this->tpl->setContent($tbl->getHTML());
+        $table = new TableBuilder(
+            new DataRetrieval($this->fss_export, $this->lng),
+            $this->lng,
+            $this->ui_factory,
+            $this->http
+        );
+
+        $this->tpl->setContent(
+            $this->ui_renderer->render(
+                $table->get(...$this->getTableActionURLBuilder())
+            )
+        );
+    }
+
+    /**
+     * @return array{0: URLBuilder, 1: URLBuilderToken, 2: URLBuilderToken}
+     */
+    protected function getTableActionURLBuilder(): array
+    {
+        $link = ILIAS_HTTP_PATH . '/' . $this->ctrl->getLinkTarget(
+            $this,
+            'handleTableAction'
+        );
+        $url_builder = new URLBuilder($this->data_factory->uri($link));
+        return $url_builder->acquireParameters(['mem_exp_tbl'], 'table_ids', 'table_action');
+    }
+
+    protected function handleTableAction(): void
+    {
+        list($url_builder, $id_token, $action_token) = $this->getTableActionURLBuilder();
+
+        if (!$this->http->wrapper()->query()->has($action_token->getName())) {
+            return;
+        }
+        if (!$this->http->wrapper()->query()->has($id_token->getName())) {
+            return;
+        }
+
+        $action = $this->http->wrapper()->query()->retrieve(
+            $action_token->getName(),
+            $this->refinery->kindlyTo()->string()
+        );
+
+        $data_retrieval = new DataRetrieval($this->fss_export, $this->lng);
+
+        $ids = $this->http->wrapper()->query()->retrieve(
+            $id_token->getName(),
+            $this->refinery->byTrying([
+                $this->refinery->kindlyTo()->listOf($this->refinery->kindlyTo()->string()),
+                $this->refinery->kindlyTo()->string()
+            ])
+        );
+
+        $ids = $data_retrieval->resolveIDs($ids);
+
+        switch ($action) {
+            case TableBuilder::ACTION_DOWNLOAD:
+                $this->downloadExportFile();
+                break;
+
+            case TableBuilder::ACTION_DELETE:
+                $this->confirmDeleteExportFile();
+                break;
+        }
     }
 
     /**
@@ -311,6 +386,22 @@ class ilMemberExportGUI
                 'fl',
                 $this->refinery->kindlyTo()->string()
             );
+        }
+
+        if ($fl === '') {
+            list($url_builder, $id_token, $action_token) = $this->getTableActionURLBuilder();
+            if ($this->http->wrapper()->query()->has($id_token->getName())) {
+                $ids = $this->http->wrapper()->query()->retrieve(
+                    $id_token->getName(),
+                    $this->refinery->byTrying([
+                        $this->refinery->kindlyTo()->listOf($this->refinery->kindlyTo()->string()),
+                        $this->refinery->kindlyTo()->string()
+                    ])
+                );
+                $data_retrieval = new DataRetrieval($this->fss_export, $this->lng);
+                $ids = $data_retrieval->resolveIDs($ids);
+                $fl = $ids[0] ?? '';
+            }
         }
 
         $hash = trim($fl);
@@ -377,6 +468,22 @@ class ilMemberExportGUI
                 )
             );
         }
+
+        if (!count($ids)) {
+            list($url_builder, $id_token, $action_token) = $this->getTableActionURLBuilder();
+            if ($this->http->wrapper()->query()->has($id_token->getName())) {
+                $ids = $this->http->wrapper()->query()->retrieve(
+                    $id_token->getName(),
+                    $this->refinery->byTrying([
+                        $this->refinery->kindlyTo()->listOf($this->refinery->kindlyTo()->string()),
+                        $this->refinery->kindlyTo()->string()
+                    ])
+                );
+                $data_retrieval = new DataRetrieval($this->fss_export, $this->lng);
+                $ids = $data_retrieval->resolveIDs($ids);
+            }
+        }
+
         return $ids;
     }
 

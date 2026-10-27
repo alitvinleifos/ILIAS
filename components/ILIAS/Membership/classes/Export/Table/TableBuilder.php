@@ -1,0 +1,67 @@
+<?php
+
+declare(strict_types=1);
+
+namespace ILIAS\Membership\Export\Table;
+
+use ILIAS\UI\Factory as UIFactory;
+use ILIAS\UI\Component\Table\Data as DataTable;
+use ilLanguage;
+use ILIAS\HTTP\Services as HTTP;
+use ILIAS\UI\URLBuilder;
+use ILIAS\UI\URLBuilderToken;
+
+class TableBuilder
+{
+    public const string COL_ID = 'id';
+    public const string COL_NAME = 'name';
+    public const string COL_TYPE = 'type';
+    public const string COL_SIZE = 'size';
+    public const string COL_DATE = 'date';
+
+    public const string ACTION_DOWNLOAD = 'downloadExportFile';
+    public const string ACTION_DELETE = 'confirmDeleteExportFile';
+
+    public function __construct(
+        protected DataRetrieval $data_retrieval,
+        protected ilLanguage $lng,
+        protected UIFactory $ui_factory,
+        protected HTTP $http
+    ) {
+    }
+
+    public function get(
+        URLBuilder $url_builder,
+        URLBuilderToken $id_token,
+        URLBuilderToken $action_token
+    ): DataTable {
+        $columns = [];
+        $columns[self::COL_TYPE] = $this->ui_factory->table()->column()->text(
+            $this->lng->txt('type')
+        )->withIsSortable(true);
+        $columns[self::COL_SIZE] = $this->ui_factory->table()->column()->text(
+            $this->lng->txt('ps_size')
+        )->withIsSortable(true);
+        $columns[self::COL_DATE] = $this->ui_factory->table()->column()->text(
+            $this->lng->txt('date')
+        )->withIsSortable(true);
+
+        $actions = [];
+        $actions[self::ACTION_DOWNLOAD] = $this->ui_factory->table()->action()->single(
+            $this->lng->txt('download'),
+            $url_builder->withParameter($action_token, self::ACTION_DOWNLOAD),
+            $id_token
+        );
+        $actions[self::ACTION_DELETE] = $this->ui_factory->table()->action()->standard(
+            $this->lng->txt('delete'),
+            $url_builder->withParameter($action_token, self::ACTION_DELETE),
+            $id_token
+        );
+
+        return $this->ui_factory->table()->data(
+            $this->data_retrieval,
+            $this->lng->txt('ps_export_files'),
+            $columns
+        )->withActions($actions)->withRequest($this->http->request());
+    }
+}
