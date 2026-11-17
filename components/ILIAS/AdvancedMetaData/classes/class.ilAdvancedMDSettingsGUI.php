@@ -24,6 +24,12 @@ use ILIAS\Refinery\Factory as RefineryFactory;
 use ILIAS\UI\Renderer;
 use Psr\Http\Message\RequestInterface;
 use ILIAS\HTTP\GlobalHttpState;
+use ILIAS\AdvancedMetaData\Record\Export\TableBuilder as ExportTableBuilder;
+use ILIAS\AdvancedMetaData\Record\Export\DataRetrieval as ExportDataRetrieval;
+use ILIAS\UI\URLBuilder;
+use ILIAS\Data\URI;
+use ILIAS\Data\Factory as DataFactory;
+use ILIAS\AdvancedMetaData\Record\Export\ilAdvancedMDRecordExportFilesGUI;
 
 /**
  * @author       Stefan Meyer <meyer@leifos.com>
@@ -165,19 +171,13 @@ class ilAdvancedMDSettingsGUI
         return new SplFixedArray(0);
     }
 
-    protected function getFileIdsFromPost(): SplFixedArray
+
+    protected function getExportFilesHandler(): ilAdvancedMDRecordExportFiles
     {
-        if ($this->http->wrapper()->post()->has('file_id')) {
-            return SplFixedArray::fromArray(
-                $this->http->wrapper()->post()->retrieve(
-                    'file_id',
-                    $this->refinery->kindlyTo()->dictOf(
-                        $this->refinery->kindlyTo()->string()
-                    )
-                )
-            );
-        }
-        return new SplFixedArray(0);
+        return new ilAdvancedMDRecordExportFiles(
+            $this->user->getId(),
+            $this->context === self::CONTEXT_ADMINISTRATION ? null : new ObjectId($this->obj_id)
+        );
     }
 
     protected function getFieldTypeFromQuery(): ?int
@@ -290,7 +290,18 @@ class ilAdvancedMDSettingsGUI
                 $this->ctrl->forwardCommand($int_gui);
                 break;
 
-            case "ilpropertyformgui":
+            case strtolower(ilAdvancedMDRecordExportFilesGUI::class):
+                $this->setSubTabs($this->context);
+                $this->tabs_gui->setSubTabActive('md_adv_file_list');
+                $export_gui = new ilAdvancedMDRecordExportFilesGUI(
+                    $this->context,
+                    $this->ref_id,
+                    $this->obj_id
+                );
+                $this->ctrl->forwardCommand($export_gui);
+                break;
+
+            case 'ilpropertyformgui':
                 $this->initRecordObject();
                 $this->initForm(
                     $this->record->getRecordId() > 0 ? 'edit' : 'create'
@@ -302,7 +313,26 @@ class ilAdvancedMDSettingsGUI
                 if (!$cmd) {
                     $cmd = 'showRecords';
                 }
-                $this->$cmd();
+                switch ($cmd) {
+                    case 'showFiles':
+                        $this->setSubTabs($this->context);
+                        $this->tabs_gui->setSubTabActive('md_adv_file_list');
+                        $export_gui = new ilAdvancedMDRecordExportFilesGUI(
+                            $this->context,
+                            $this->ref_id,
+                            $this->obj_id
+                        );
+                        $this->ctrl->forwardCommand($export_gui);
+                        break;
+
+                    case 'showRecords':
+                        $this->showRecords();
+                        break;
+
+                    default:
+                        $this->$cmd();
+                        break;
+                }
         }
     }
 
@@ -484,132 +514,12 @@ class ilAdvancedMDSettingsGUI
         $xml_writer = new ilAdvancedMDRecordXMLWriter((array) $record_ids);
         $xml_writer->write();
 
-        $export_files = new ilAdvancedMDRecordExportFiles(
-            $this->user->getId(),
-            $this->context === self::CONTEXT_ADMINISTRATION ? null : new ObjectId($this->obj_id)
-        );
-        $export_files->create($xml_writer->xmlDumpMem(false));
+        $this->getExportFilesHandler()->create($xml_writer->xmlDumpMem(false));
 
         $this->tpl->setOnScreenMessage('success', $this->lng->txt('md_adv_records_exported'));
-        $this->showFiles();
+        $this->ctrl->redirectByClass(ilAdvancedMDRecordExportFilesGUI::class, "showFiles");
     }
 
-    /**
-     * Show export files
-     */
-    protected function showFiles(): void
-    {
-        $this->setSubTabs($this->context);
-        $this->tabs_gui->setSubTabActive('md_adv_file_list');
-
-        $files = new ilAdvancedMDRecordExportFiles(
-            $this->user->getId(),
-            $this->context === self::CONTEXT_ADMINISTRATION ? null : new ObjectId($this->obj_id)
-        );
-        $file_data = $files->readFilesInfo();
-
-        $table_gui = new ilAdvancedMDRecordExportFilesTableGUI($this, "showFiles");
-        $table_gui->setTitle($this->lng->txt("md_record_export_table"));
-        $table_gui->parseFiles($file_data);
-        $table_gui->addMultiCommand("downloadFile", $this->lng->txt('download'));
-
-        if ($GLOBALS['DIC']->access()->checkAccess('write', '', $this->ref_id)) {
-            $table_gui->addMultiCommand("confirmDeleteFiles", $this->lng->txt("delete"));
-        }
-        $table_gui->setSelectAllCheckbox("file_id");
-
-        $this->tpl->setContent($table_gui->getHTML());
-    }
-
-    /**
-     * Download XML file
-     * @access public
-     * @param
-     */
-    public function downloadFile(): void
-    {
-        $file_ids = $this->getFileIdsFromPost();
-        if (count($file_ids) !== 1) {
-            $this->tpl->setOnScreenMessage('failure', $this->lng->txt('md_adv_select_one_file'));
-            $this->showFiles();
-            return;
-        }
-        $files = new ilAdvancedMDRecordExportFiles(
-            $this->user->getId(),
-            $this->context === self::CONTEXT_ADMINISTRATION ? null : new ObjectId($this->obj_id)
-        );
-        $files->download($file_ids[0], 'ilias_meta_data_record.xml');
-    }
-
-    /**
-     * confirm delete files
-     * @access public
-     */
-    public function confirmDeleteFiles(): void
-    {
-        $file_ids = $this->getFileIdsFromPost();
-        if (count($file_ids) !== 1) {
-            $this->tpl->setOnScreenMessage('failure', $this->lng->txt('select_one'));
-            $this->showFiles();
-            return;
-        }
-
-        $c_gui = new ilConfirmationGUI();
-        $c_gui->setFormAction($this->ctrl->getFormAction($this, "deleteFiles"));
-        $c_gui->setHeaderText($this->lng->txt("md_adv_delete_files_sure"));
-        $c_gui->setCancel($this->lng->txt("cancel"), "showFiles");
-        $c_gui->setConfirm($this->lng->txt("confirm"), "deleteFiles");
-
-        $files = new ilAdvancedMDRecordExportFiles(
-            $this->user->getId(),
-            $this->context === self::CONTEXT_ADMINISTRATION ? null : new ObjectId($this->obj_id)
-        );
-        $file_data = $files->readFilesInfo();
-
-        // add items to delete
-        foreach ($file_ids as $file_id) {
-            $info = $file_data[$file_id];
-            $c_gui->addItem(
-                "file_id[]",
-                (string) $file_id,
-                is_array($info['name'] ?? false) ? implode(',', $info['name']) : 'No Records'
-            );
-        }
-        $this->tpl->setContent($c_gui->getHTML());
-    }
-
-    /**
-     * Delete files
-     * @access public
-     * @param
-     */
-    public function deleteFiles(): void
-    {
-        $file_ids = $this->getFileIdsFromPost();
-        if (count($file_ids) === 0) {
-            $this->tpl->setOnScreenMessage('failure', $this->lng->txt('select_one'));
-            $this->showFiles();
-            return;
-        }
-
-        if (!$GLOBALS['DIC']->access()->checkAccess('write', '', $this->ref_id)) {
-            $this->tpl->setOnScreenMessage('failure', $this->lng->txt('permission_denied'), true);
-            $GLOBALS['DIC']->ctrl()->redirect($this, 'showFiles');
-        }
-
-        $files = new ilAdvancedMDRecordExportFiles(
-            $this->user->getId(),
-            $this->context === self::CONTEXT_ADMINISTRATION ? null : new ObjectId($this->obj_id)
-        );
-        foreach ($file_ids as $file_id) {
-            $files->deleteByFileId(
-                $this->user->getId(),
-                $file_id
-            );
-        }
-        $this->tpl->setOnScreenMessage('success', $this->lng->txt('md_adv_deleted_files'));
-        $this->showFiles();
-    }
 
     /**
      * Confirm delete
@@ -1858,7 +1768,7 @@ class ilAdvancedMDSettingsGUI
 
         $this->tabs_gui->addSubTabTarget(
             "md_adv_file_list",
-            $this->ctrl->getLinkTarget($this, "showFiles"),
+            $this->ctrl->getLinkTargetByClass(ilAdvancedMDRecordExportFilesGUI::class, "showFiles"),
             "showFiles"
         );
     }
