@@ -33,16 +33,16 @@ use ILIAS\AdvancedMetaData\Record\Export\ilAdvancedMDRecordExportFilesGUI;
 
 /**
  * @author       Stefan Meyer <meyer@leifos.com>
- * @ilCtrl_Calls ilAdvancedMDSettingsGUI: ilPropertyFormGUI
+ * @ilCtrl_Calls ilAdvancedMDSettingsGUI: ilPropertyFormGUI, ILIAS\AdvancedMetaData\Record\Export\ilAdvancedMDRecordExportFilesGUI, ilAdvancedMDRecordTranslationGUI
  * @ingroup      ServicesAdvancedMetaData
  */
 class ilAdvancedMDSettingsGUI
 {
-    public const CONTEXT_ADMINISTRATION = 1;
-    public const CONTEXT_OBJECT = 2;
+    public const int CONTEXT_ADMINISTRATION = 1;
+    public const int CONTEXT_OBJECT = 2;
 
-    protected const TAB_RECORD_SETTINGS = 'editRecord';
-    protected const TAB_TRANSLATION = 'translations';
+    protected const string TAB_RECORD_SETTINGS = 'editRecord';
+    protected const string TAB_TRANSLATION = 'translations';
 
     /**
      * Active settings mode
@@ -282,6 +282,7 @@ class ilAdvancedMDSettingsGUI
     {
         $next_class = $this->ctrl->getNextClass($this);
         $cmd = $this->ctrl->getCmd();
+
         switch ($next_class) {
             case strtolower(ilAdvancedMDRecordTranslationGUI::class):
                 $record = $this->initRecordObject();
@@ -291,7 +292,9 @@ class ilAdvancedMDSettingsGUI
                 break;
 
             case strtolower(ilAdvancedMDRecordExportFilesGUI::class):
-                $this->setSubTabs($this->context);
+                if ($this->context === self::CONTEXT_ADMINISTRATION) {
+                    $this->setSubTabs($this->context);
+                }
                 $this->tabs_gui->setSubTabActive('md_adv_file_list');
                 $export_gui = new ilAdvancedMDRecordExportFilesGUI(
                     $this->context,
@@ -310,29 +313,11 @@ class ilAdvancedMDSettingsGUI
                 break;
 
             default:
-                if (!$cmd) {
+                if ($cmd === '') {
                     $cmd = 'showRecords';
                 }
-                switch ($cmd) {
-                    case 'showFiles':
-                        $this->setSubTabs($this->context);
-                        $this->tabs_gui->setSubTabActive('md_adv_file_list');
-                        $export_gui = new ilAdvancedMDRecordExportFilesGUI(
-                            $this->context,
-                            $this->ref_id,
-                            $this->obj_id
-                        );
-                        $this->ctrl->forwardCommand($export_gui);
-                        break;
-
-                    case 'showRecords':
-                        $this->showRecords();
-                        break;
-
-                    default:
-                        $this->$cmd();
-                        break;
-                }
+                $this->$cmd();
+                break;
         }
     }
 
@@ -517,7 +502,7 @@ class ilAdvancedMDSettingsGUI
         $this->getExportFilesHandler()->create($xml_writer->xmlDumpMem(false));
 
         $this->tpl->setOnScreenMessage('success', $this->lng->txt('md_adv_records_exported'));
-        $this->ctrl->redirectByClass(ilAdvancedMDRecordExportFilesGUI::class, "showFiles");
+        $this->ctrl->redirectByClass([strtolower(self::class), ilAdvancedMDRecordExportFilesGUI::class], "showFiles");
     }
 
 
@@ -1768,8 +1753,7 @@ class ilAdvancedMDSettingsGUI
 
         $this->tabs_gui->addSubTabTarget(
             "md_adv_file_list",
-            $this->ctrl->getLinkTargetByClass(ilAdvancedMDRecordExportFilesGUI::class, "showFiles"),
-            "showFiles"
+            $this->ctrl->getLinkTargetByClass([strtolower(self::class), ilAdvancedMDRecordExportFilesGUI::class], "showFiles")
         );
     }
 
