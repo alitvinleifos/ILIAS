@@ -21,6 +21,8 @@ declare(strict_types=1);
 namespace ILIAS\Repository;
 
 use ILIAS\DI\Container;
+use ILIAS\Repository\Breadcrumbs\Factory as BreadcrumbsFactory;
+use ILIAS\Data\Factory as DataFactory;
 
 /**
  * @author Alexander Killing <killing@leifos.de>
@@ -90,4 +92,12 @@ class InternalGUIService
         );
     }
 
+    public function breadcrumbs(): BreadcrumbsFactory
+    {
+        return new BreadcrumbsFactory(
+            $this->domain_service,
+            $this,
+            $this->DIC[DataFactory::class]
+        );
+    }
 }

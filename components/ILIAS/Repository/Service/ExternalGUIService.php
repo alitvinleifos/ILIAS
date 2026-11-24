@@ -36,4 +36,9 @@ class ExternalGUIService
     ): ilObjectOwnershipManagementGUI {
         return $this->internal_gui->ownership()->ownershipManagementGUI($user_id, $read_only);
     }
+
+    public function breadcrumbs(): Breadcrumbs\Factory
+    {
+        return $this->internal_gui->breadcrumbs();
+    }
 }
