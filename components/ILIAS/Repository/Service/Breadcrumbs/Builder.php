@@ -21,19 +21,9 @@ declare(strict_types=1);
 namespace ILIAS\Repository\Breadcrumbs;
 
 use ILIAS\UI\Component\Breadcrumbs\Breadcrumbs;
-use ILIAS\UI\Factory as UIFactory;
-use ILIAS\StaticURL\StaticURLServices;
-use ILIAS\Data\Factory as DataFactory;
-use ILIAS\Repository\InternalDomainService;
-use ILIAS\Repository\InternalGUIService;
-use ilTree;
-use ilLanguage;
-use ilAccessHandler;
-use ilObjectDefinition;
-use ilObject;
-use ilCtrlInterface;
-use ilAdministrationGUI;
 use ILIAS\UI\Component\Link\Standard as StandardLink;
+use ILIAS\UI\Factory as UIFactory;
+use ilTree;
 
 class Builder implements BuilderInterface
 {
@@ -46,19 +36,20 @@ class Builder implements BuilderInterface
     public function __construct(
         protected int $start_ref_id,
         protected int $end_ref_id,
-        protected InternalDomainService $domain_service,
-        protected InternalGUIService $gui_service,
-        protected DataFactory $data_factory
+        protected ilTree $tree,
+        protected UIFactory $ui_factory,
+        protected ObjectPropertiesWrapperInterface $wrapper,
+        protected AccessWrapperInterface $access_wrapper
     ) {
     }
-    public function withLeadCrumb(StandardLink $link): BuilderInterface
+    public function addLeadingLink(StandardLink $link): BuilderInterface
     {
         $clone = clone $this;
         $clone->lead_crumbs[] = $link;
         return $clone;
     }
 
-    public function withTrailCrumb(StandardLink $link): BuilderInterface
+    public function addTrailingLink(StandardLink $link): BuilderInterface
     {
         $clone = clone $this;
         $clone->trail_crumbs[] = $link;
@@ -96,7 +87,7 @@ class Builder implements BuilderInterface
             $crumbs[] = $link;
         }
 
-        return $this->gui_service->ui()->factory()->breadcrumbs(
+        return $this->ui_factory->breadcrumbs(
             array_merge($crumbs, $this->trail_crumbs)
         );
     }
@@ -123,35 +114,37 @@ class Builder implements BuilderInterface
 
         $needs_gap_indicator = false;
         foreach ($path as $ref_id) {
-            $obj_id = ilObject::_lookupObjId($ref_id);
-            $type = ilObject::_lookupType($obj_id);
+            $permissions = $this->access_wrapper->getPermissionResult($ref_id);
 
-            $has_visible_permission = $this->domain_service->access()->checkAccess('visible', '', $ref_id);
-            $has_read_permission = $this->domain_service->access()->checkAccess('read', '', $ref_id);
-
-            if (!$has_visible_permission) {
+            if (!$permissions['is_visible']) {
                 $needs_gap_indicator = true;
                 continue;
             }
 
             if ($needs_gap_indicator) {
-                yield $this->gui_service->ui()->factory()->link()->standard('...', '')->withDisabled(true);
+                yield $this->ui_factory->link()->standard('...', '')->withDisabled(true);
                 $needs_gap_indicator = false;
             }
 
-            $title = $this->buildTitle($ref_id, $obj_id, $type);
-            $action = $has_read_permission ? $this->buildLink($ref_id, $type) : '';
+            $obj_id = $this->wrapper->lookupObjId($ref_id);
+            $type = $this->wrapper->lookupType($obj_id);
+            $title = $this->wrapper->buildTitle($ref_id, $obj_id, $type);
 
-            $link = $this->gui_service->ui()->factory()->link()->standard($title, $action);
-            if ($action === '') {
-                $link = $link->withDisabled(true);
+            $link = $this->ui_factory->link()->standard(
+                $title,
+                $permissions['is_clickable'] ? $this->wrapper->buildLink($ref_id, $type) : ''
+            );
+
+            if (!$permissions['is_clickable']) {
+                yield $link->withDisabled(true);
+                continue;
             }
 
             yield $link;
         }
 
         if ($needs_gap_indicator) {
-            yield $this->gui_service->ui()->factory()->link()->standard('...', '')->withDisabled(true);
+            yield $this->ui_factory->link()->standard('...', '')->withDisabled(true);
         }
     }
 
@@ -164,7 +157,7 @@ class Builder implements BuilderInterface
             return [];
         }
 
-        $path = $this->domain_service->repositoryTree()->getPathId($this->end_ref_id, $this->start_ref_id);
+        $path = $this->tree->getPathId($this->end_ref_id, $this->start_ref_id);
 
         if (!$this->isStartIncluded() && count($path) > 0) {
             array_shift($path);
@@ -175,30 +168,5 @@ class Builder implements BuilderInterface
         }
 
         return array_values($path);
-    }
-
-    protected function buildTitle(int $ref_id, int $obj_id, string $type): string
-    {
-        if ($ref_id === (int) ROOT_FOLDER_ID) {
-            return $this->domain_service->lng()->txt('repository');
-        }
-
-        if ($this->domain_service->objectDefinition()->isAdministrationObject($type)) {
-            return $this->domain_service->lng()->txt('obj_' . $type);
-        }
-
-        return ilObject::_lookupTitle($obj_id);
-    }
-
-    protected function buildLink(int $ref_id, string $type): string
-    {
-        if ($this->domain_service->objectDefinition()->isAdministrationObject($type)) {
-            $this->gui_service->ctrl()->setParameterByClass(ilAdministrationGUI::class, 'ref_id', $ref_id);
-            $link = $this->gui_service->ctrl()->getLinkTargetByClass(ilAdministrationGUI::class, 'jump');
-            $this->gui_service->ctrl()->clearParametersByClass(ilAdministrationGUI::class);
-            return $link;
-        }
-
-        return (string) $this->domain_service->staticUrl()->builder()->build($type, $this->data_factory->refId($ref_id));
     }
 }

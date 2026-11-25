@@ -27,4 +27,6 @@ namespace ILIAS\Repository\Breadcrumbs;
 interface FactoryInterface
 {
     public function buildBreadcrumbs(int $start_ref_id, int $end_ref_id): BuilderInterface;
+    public function objectPropertiesWrapper(): ObjectPropertiesWrapperInterface;
+    public function accessWrapper(): AccessWrapperInterface;
 }

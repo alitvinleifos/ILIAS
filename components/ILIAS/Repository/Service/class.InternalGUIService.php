@@ -95,8 +95,13 @@ class InternalGUIService
     public function breadcrumbs(): BreadcrumbsFactory
     {
         return new BreadcrumbsFactory(
-            $this->domain_service,
-            $this,
+            $this->domain_service->repositoryTree(),
+            $this->domain_service->access(),
+            $this->domain_service->lng(),
+            $this->domain_service->objectDefinition(),
+            $this->ctrl(),
+            $this->domain_service->staticUrl(),
+            $this->ui()->factory(),
             $this->DIC[DataFactory::class]
         );
     }

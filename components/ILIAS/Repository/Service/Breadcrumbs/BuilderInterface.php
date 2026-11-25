@@ -29,9 +29,9 @@ use ILIAS\UI\Component\Link\Standard as StandardLink;
  */
 interface BuilderInterface
 {
-    public function withLeadCrumb(StandardLink $link): self;
+    public function addLeadingLink(StandardLink $link): self;
 
-    public function withTrailCrumb(StandardLink $link): self;
+    public function addTrailingLink(StandardLink $link): self;
 
     public function withStartIncluded(bool $included): self;
 
